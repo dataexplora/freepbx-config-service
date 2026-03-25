@@ -1,6 +1,7 @@
 const { Router } = require('express');
 const fs = require('fs');
 const path = require('path');
+const { execSync } = require('child_process');
 const { getRecording, createOrUpdateRecording, deleteRecording, createOrUpdateAnnouncement } = require('../lib/freepbx-db');
 const { fwconsoleReload } = require('../lib/reload');
 
@@ -72,10 +73,30 @@ router.put('/:name', async (req, res) => {
       fs.mkdirSync(SOUNDS_DIR, { recursive: true });
     }
 
-    // Save file
-    const filePath = path.join(SOUNDS_DIR, `${name}.wav`);
-    fs.writeFileSync(filePath, audioBuffer);
-    fs.chownSync(filePath, 995, 995); // asterisk:asterisk
+    // Save raw upload to temp file
+    const tempPath = path.join(SOUNDS_DIR, `${name}.tmp`);
+    const finalPath = path.join(SOUNDS_DIR, `${name}.wav`);
+    fs.writeFileSync(tempPath, audioBuffer);
+
+    // Convert to Asterisk-compatible WAV (PCM 16-bit, 8000Hz, mono)
+    try {
+      execSync(`ffmpeg -y -i "${tempPath}" -ar 8000 -ac 1 -sample_fmt s16 "${finalPath}" 2>/dev/null`);
+      fs.unlinkSync(tempPath);
+    } catch (convErr) {
+      // If ffmpeg fails, try sox
+      try {
+        execSync(`sox "${tempPath}" -r 8000 -c 1 -b 16 "${finalPath}" 2>/dev/null`);
+        fs.unlinkSync(tempPath);
+      } catch {
+        // Last resort: keep as-is
+        fs.renameSync(tempPath, finalPath);
+        console.warn('[RECORDINGS] Audio conversion failed, saved raw file');
+      }
+    }
+
+    // Set ownership to asterisk user
+    try { execSync(`chown asterisk:asterisk "${finalPath}"`); } catch {}
+
 
     // Create/update DB record
     const recordingId = await createOrUpdateRecording(name, displayName);
