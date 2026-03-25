@@ -6,6 +6,7 @@ const express = require('express');
 const { authMiddleware } = require('./middleware/auth');
 const hoursRoutes = require('./routes/hours');
 const aiRoutes = require('./routes/ai');
+const callflowRoutes = require('./routes/callflow');
 
 const app = express();
 const PORT = process.env.PORT || 8443;
@@ -25,6 +26,7 @@ app.get('/health', (req, res) => {
 // Protected routes
 app.use('/hours', authMiddleware, hoursRoutes);
 app.use('/ai', authMiddleware, aiRoutes);
+app.use('/callflow', authMiddleware, callflowRoutes);
 
 // 404
 app.use((req, res) => {
