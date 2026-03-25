@@ -7,6 +7,7 @@ const { authMiddleware } = require('./middleware/auth');
 const hoursRoutes = require('./routes/hours');
 const aiRoutes = require('./routes/ai');
 const callflowRoutes = require('./routes/callflow');
+const recordingsRoutes = require('./routes/recordings');
 
 const app = express();
 const PORT = process.env.PORT || 8443;
@@ -16,7 +17,13 @@ const SSL_KEY_PATH = process.env.SSL_KEY_PATH
 const SSL_CERT_PATH = process.env.SSL_CERT_PATH
   || '/etc/letsencrypt/live/pbx.ckstudios.work/fullchain.pem';
 
-app.use(express.json({ limit: '1mb' }));
+// JSON parsing for all routes except recordings (which receive raw audio)
+app.use((req, res, next) => {
+  if (req.path.startsWith('/recordings') && req.method === 'PUT') {
+    return next();
+  }
+  express.json({ limit: '1mb' })(req, res, next);
+});
 
 // Health — no auth
 app.get('/health', (req, res) => {
@@ -27,6 +34,7 @@ app.get('/health', (req, res) => {
 app.use('/hours', authMiddleware, hoursRoutes);
 app.use('/ai', authMiddleware, aiRoutes);
 app.use('/callflow', authMiddleware, callflowRoutes);
+app.use('/recordings', authMiddleware, recordingsRoutes);
 
 // 404
 app.use((req, res) => {
