@@ -1,7 +1,7 @@
 const { Router } = require('express');
 const fs = require('fs');
 const path = require('path');
-const { getRecording, createOrUpdateRecording, deleteRecording } = require('../lib/freepbx-db');
+const { getRecording, createOrUpdateRecording, deleteRecording, createOrUpdateAnnouncement } = require('../lib/freepbx-db');
 const { fwconsoleReload } = require('../lib/reload');
 
 const router = Router();
@@ -80,6 +80,15 @@ router.put('/:name', async (req, res) => {
     // Create/update DB record
     const recordingId = await createOrUpdateRecording(name, displayName);
 
+    // Auto-create/link announcement if name ends with -noanswer or -closed
+    let announcementId = null;
+    const announcementType = req.query.type; // 'noanswer' or 'closed'
+    if (announcementType === 'noanswer' || announcementType === 'closed' || name.endsWith('-noanswer') || name.endsWith('-closed')) {
+      const annDesc = name; // Use recording name as announcement description
+      announcementId = await createOrUpdateAnnouncement(annDesc, recordingId, 'app-blackhole,hangup,1');
+      console.log(`[RECORDINGS] Linked recording ${recordingId} to announcement ${announcementId}`);
+    }
+
     // Reload dialplan
     let reloadStatus = 'success';
     try {
@@ -93,6 +102,7 @@ router.put('/:name', async (req, res) => {
       ok: true,
       name,
       recording_id: recordingId,
+      announcement_id: announcementId,
       file_size: audioBuffer.length,
       reload: reloadStatus,
     });
