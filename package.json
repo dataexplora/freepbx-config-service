@@ -1,0 +1,15 @@
+{
+  "name": "freepbx-config-service",
+  "version": "1.0.0",
+  "description": "REST API proxy for managing FreePBX time conditions and schedules",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "dependencies": {
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
+    "mysql2": "^3.11.0"
+  }
+}
