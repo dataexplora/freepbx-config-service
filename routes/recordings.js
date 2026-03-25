@@ -2,7 +2,7 @@ const { Router } = require('express');
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
-const { getRecording, createOrUpdateRecording, deleteRecording, createOrUpdateAnnouncement } = require('../lib/freepbx-db');
+const { getRecording, createOrUpdateRecording, deleteRecording, createOrUpdateAnnouncement, setRinggroupPostdest, setTimeconditionFalsegoto } = require('../lib/freepbx-db');
 const { fwconsoleReload } = require('../lib/reload');
 
 const router = Router();
@@ -75,39 +75,51 @@ router.put('/:name', async (req, res) => {
 
     // Save raw upload to temp file
     const tempPath = path.join(SOUNDS_DIR, `${name}.tmp`);
-    const finalPath = path.join(SOUNDS_DIR, `${name}.wav`);
+    const ulawPath = path.join(SOUNDS_DIR, `${name}.ulaw`);
+    const wavPath = path.join(SOUNDS_DIR, `${name}.wav`);
     fs.writeFileSync(tempPath, audioBuffer);
 
-    // Convert to Asterisk-compatible WAV (PCM 16-bit, 8000Hz, mono)
+    // Convert to ulaw (Asterisk native format: 8000Hz mono mu-law)
     try {
-      execSync(`ffmpeg -y -i "${tempPath}" -ar 8000 -ac 1 -sample_fmt s16 "${finalPath}" 2>/dev/null`);
+      execSync(`ffmpeg -y -i "${tempPath}" -ar 8000 -ac 1 -f mulaw "${ulawPath}" 2>/dev/null`);
+      // Also create wav for compatibility
+      execSync(`ffmpeg -y -i "${tempPath}" -ar 8000 -ac 1 -sample_fmt s16 "${wavPath}" 2>/dev/null`);
       fs.unlinkSync(tempPath);
     } catch (convErr) {
-      // If ffmpeg fails, try sox
-      try {
-        execSync(`sox "${tempPath}" -r 8000 -c 1 -b 16 "${finalPath}" 2>/dev/null`);
-        fs.unlinkSync(tempPath);
-      } catch {
-        // Last resort: keep as-is
-        fs.renameSync(tempPath, finalPath);
-        console.warn('[RECORDINGS] Audio conversion failed, saved raw file');
-      }
+      fs.renameSync(tempPath, ulawPath);
+      console.warn('[RECORDINGS] Audio conversion failed, saved raw file as ulaw');
     }
 
     // Set ownership to asterisk user
-    try { execSync(`chown asterisk:asterisk "${finalPath}"`); } catch {}
+    try { execSync(`chown asterisk:asterisk "${ulawPath}" "${wavPath}" 2>/dev/null`); } catch {}
 
 
     // Create/update DB record
     const recordingId = await createOrUpdateRecording(name, displayName);
 
-    // Auto-create/link announcement if name ends with -noanswer or -closed
+    // Auto-create/link announcement + wire to ring group or time condition
     let announcementId = null;
-    const announcementType = req.query.type; // 'noanswer' or 'closed'
-    if (announcementType === 'noanswer' || announcementType === 'closed' || name.endsWith('-noanswer') || name.endsWith('-closed')) {
-      const annDesc = name; // Use recording name as announcement description
+    const type = req.query.type; // 'noanswer' or 'closed'
+    const ringgroupNum = req.query.ringgroup;   // e.g. "1100"
+    const timeconditionId = req.query.tc;        // e.g. "1"
+
+    const isNoAnswer = type === 'noanswer' || name.endsWith('-noanswer');
+    const isClosed = type === 'closed' || name.endsWith('-closed');
+
+    if (isNoAnswer || isClosed) {
+      const annDesc = name;
       announcementId = await createOrUpdateAnnouncement(annDesc, recordingId, 'app-blackhole,hangup,1');
-      console.log(`[RECORDINGS] Linked recording ${recordingId} to announcement ${announcementId}`);
+      const annDest = `app-announcement-${announcementId},s,1`;
+
+      if (isNoAnswer && ringgroupNum) {
+        await setRinggroupPostdest(ringgroupNum, annDest);
+        console.log(`[RECORDINGS] Ring group ${ringgroupNum} no-answer → announcement ${announcementId}`);
+      }
+
+      if (isClosed && timeconditionId) {
+        await setTimeconditionFalsegoto(timeconditionId, annDest);
+        console.log(`[RECORDINGS] Time condition ${timeconditionId} falsegoto → announcement ${announcementId}`);
+      }
     }
 
     // Reload dialplan
