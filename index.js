@@ -8,6 +8,7 @@ const hoursRoutes = require('./routes/hours');
 const aiRoutes = require('./routes/ai');
 const callflowRoutes = require('./routes/callflow');
 const recordingsRoutes = require('./routes/recordings');
+const onboardRoutes = require('./routes/onboard');
 
 const app = express();
 const PORT = process.env.PORT || 8443;
@@ -35,6 +36,7 @@ app.use('/hours', authMiddleware, hoursRoutes);
 app.use('/ai', authMiddleware, aiRoutes);
 app.use('/callflow', authMiddleware, callflowRoutes);
 app.use('/recordings', authMiddleware, recordingsRoutes);
+app.use('/onboard', authMiddleware, onboardRoutes);
 
 // 404
 app.use((req, res) => {
