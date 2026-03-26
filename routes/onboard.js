@@ -111,28 +111,6 @@ username=${did}
 password=${sipPassword}
 `);
 
-    fs.appendFileSync('/etc/asterisk/pjsip.endpoint_custom.conf', `
-[${sipId}]
-type=endpoint
-transport=0.0.0.0-udp
-context=from-trunk
-disallow=all
-allow=alaw,ulaw
-outbound_auth=${sipId}-auth
-aors=${sipId}
-from_domain=sip.yuboto-telephony.gr
-from_user=${did}
-contact_user=${did}
-rewrite_contact=yes
-rtp_symmetric=yes
-force_rport=yes
-direct_media=no
-t38_udptl=no
-send_rpid=yes
-trust_id_inbound=yes
-trust_id_outbound=yes
-`);
-
     fs.appendFileSync('/etc/asterisk/pjsip.aor_custom.conf', `
 [${sipId}]
 type=aor
@@ -140,22 +118,30 @@ contact=sip:sip.yuboto-telephony.gr:5060
 qualify_frequency=60
 `);
 
-    // NOTE: Do NOT add per-DID identify section — single shared identify
-    // in pjsip_custom.conf handles all Yuboto endpoints
+    // NOTE: No custom endpoint or identify per DID
+    // The shared yuboto-in endpoint (FreePBX generated) handles all inbound calls
+    // Only registration + auth + aor are needed per DID
 
     console.log(`[ONBOARD] SIP registration added for ${did}`);
 
-    // Step 10: DIDMAP + DAYNIGHT in Asterisk DB
+    // Step 10: DIDMAP via Asterisk CLI (no alternative for AstDB)
     try {
       execSync(`asterisk -rx "database put DIDMAP ${did} ${phoneNumber}"`);
-      execSync(`asterisk -rx "database put DAYNIGHT C${cfExt} DAY"`);
     } catch (e) {
-      console.warn('[ONBOARD] Failed to init Asterisk DB entries:', e.message);
+      console.warn('[ONBOARD] Failed to set DIDMAP:', e.message);
     }
 
-    // Step 10b: Set time condition to true_sticky via FreePBX REST API
+    // Step 10b: DAYNIGHT state via FreePBX REST API
+    const { setCallflowState, setTimeconditionState } = require('../lib/freepbx-api');
+    try {
+      await setCallflowState(cfExt, 'DAY');
+      console.log(`[ONBOARD] DAYNIGHT C${cfExt} set to DAY`);
+    } catch (e) {
+      console.warn('[ONBOARD] Failed to set DAYNIGHT state:', e.message);
+    }
+
+    // Step 10c: Time condition to true_sticky via FreePBX REST API
     // (business hours disabled by default — AI always on until customer enables hours)
-    const { setTimeconditionState } = require('../lib/freepbx-api');
     try {
       await setTimeconditionState(result.timeconditionId, 'true_sticky');
       console.log(`[ONBOARD] TC ${result.timeconditionId} set to true_sticky`);
