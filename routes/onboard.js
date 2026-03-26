@@ -153,6 +153,16 @@ qualify_frequency=60
       console.warn('[ONBOARD] Failed to init Asterisk DB entries:', e.message);
     }
 
+    // Step 10b: Set time condition to true_sticky via FreePBX REST API
+    // (business hours disabled by default — AI always on until customer enables hours)
+    const { setTimeconditionState } = require('../lib/freepbx-api');
+    try {
+      await setTimeconditionState(result.timeconditionId, 'true_sticky');
+      console.log(`[ONBOARD] TC ${result.timeconditionId} set to true_sticky`);
+    } catch (e) {
+      console.warn('[ONBOARD] Failed to set TC state:', e.message);
+    }
+
     // Step 11: Reload
     let reloadStatus = 'success';
     try {
