@@ -124,24 +124,18 @@ qualify_frequency=60
 
     console.log(`[ONBOARD] SIP registration added for ${did}`);
 
-    // Step 10: DIDMAP via Asterisk CLI (no alternative for AstDB)
+    // Step 10: Asterisk DB entries (CLI — no REST API alternative for initial creation)
     try {
       execSync(`asterisk -rx "database put DIDMAP ${did} ${phoneNumber}"`);
+      execSync(`asterisk -rx "database put DAYNIGHT C${cfExt} DAY"`);
+      console.log(`[ONBOARD] AstDB: DIDMAP + DAYNIGHT C${cfExt} set`);
     } catch (e) {
-      console.warn('[ONBOARD] Failed to set DIDMAP:', e.message);
+      console.warn('[ONBOARD] Failed to set AstDB entries:', e.message);
     }
 
-    // Step 10b: DAYNIGHT state via FreePBX REST API
-    const { setCallflowState, setTimeconditionState } = require('../lib/freepbx-api');
-    try {
-      await setCallflowState(cfExt, 'DAY');
-      console.log(`[ONBOARD] DAYNIGHT C${cfExt} set to DAY`);
-    } catch (e) {
-      console.warn('[ONBOARD] Failed to set DAYNIGHT state:', e.message);
-    }
-
-    // Step 10c: Time condition to true_sticky via FreePBX REST API
+    // Step 10b: Time condition to true_sticky via FreePBX REST API
     // (business hours disabled by default — AI always on until customer enables hours)
+    const { setTimeconditionState } = require('../lib/freepbx-api');
     try {
       await setTimeconditionState(result.timeconditionId, 'true_sticky');
       console.log(`[ONBOARD] TC ${result.timeconditionId} set to true_sticky`);
