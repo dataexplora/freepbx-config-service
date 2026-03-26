@@ -26,6 +26,8 @@ router.post('/', async (req, res) => {
     storeName,
     storeSlug,
     did,
+    sipPassword,
+    phoneNumber,
     extensionCount = 5,
     extensionStart = null,
   } = req.body || {};
@@ -35,6 +37,14 @@ router.post('/', async (req, res) => {
     return res.status(400).json({
       error: 'Missing required fields: storeName, storeSlug, did',
     });
+  }
+
+  if (!sipPassword) {
+    return res.status(400).json({ error: 'Missing sipPassword (Yuboto password)' });
+  }
+
+  if (!phoneNumber) {
+    return res.status(400).json({ error: 'Missing phoneNumber (real CID, e.g. +302103003551)' });
   }
 
   if (extensionCount < 1 || extensionCount > 20) {
@@ -75,13 +85,79 @@ router.post('/', async (req, res) => {
       cfExt,
     });
 
-    // Step 9: Initialize DAYNIGHT state in Asterisk DB + reload
+    // Step 9: SIP registration for Yuboto DID
+    const fs = require('fs');
+    const sipId = `yuboto-${did}`;
+
+    fs.appendFileSync('/etc/asterisk/pjsip.registration_custom.conf', `
+[${sipId}]
+type=registration
+transport=0.0.0.0-udp
+outbound_auth=${sipId}-auth
+server_uri=sip:sip.yuboto-telephony.gr:5060
+client_uri=sip:${did}@sip.yuboto-telephony.gr
+contact_user=${did}
+retry_interval=60
+forbidden_retry_interval=600
+expiration=3600
+auth_rejection_permanent=no
+`);
+
+    fs.appendFileSync('/etc/asterisk/pjsip.auth_custom.conf', `
+[${sipId}-auth]
+type=auth
+auth_type=userpass
+username=${did}
+password=${sipPassword}
+`);
+
+    fs.appendFileSync('/etc/asterisk/pjsip.endpoint_custom.conf', `
+[${sipId}]
+type=endpoint
+transport=0.0.0.0-udp
+context=from-trunk
+disallow=all
+allow=alaw,ulaw
+outbound_auth=${sipId}-auth
+aors=${sipId}
+from_domain=sip.yuboto-telephony.gr
+from_user=${did}
+contact_user=${did}
+rewrite_contact=yes
+rtp_symmetric=yes
+force_rport=yes
+direct_media=no
+t38_udptl=no
+send_rpid=yes
+trust_id_inbound=yes
+trust_id_outbound=yes
+`);
+
+    fs.appendFileSync('/etc/asterisk/pjsip.aor_custom.conf', `
+[${sipId}]
+type=aor
+contact=sip:sip.yuboto-telephony.gr:5060
+qualify_frequency=60
+`);
+
+    fs.appendFileSync('/etc/asterisk/pjsip_custom.conf', `
+[identify-${sipId}]
+type=identify
+endpoint=${sipId}
+match=sip.yuboto-telephony.gr
+`);
+
+    console.log(`[ONBOARD] SIP registration added for ${did}`);
+
+    // Step 10: DIDMAP + DAYNIGHT in Asterisk DB
     try {
+      execSync(`asterisk -rx "database put DIDMAP ${did} ${phoneNumber}"`);
       execSync(`asterisk -rx "database put DAYNIGHT C${cfExt} DAY"`);
     } catch (e) {
-      console.warn('[ONBOARD] Failed to init DAYNIGHT state:', e.message);
+      console.warn('[ONBOARD] Failed to init Asterisk DB entries:', e.message);
     }
 
+    // Step 11: Reload
     let reloadStatus = 'success';
     try {
       await fwconsoleReload();
@@ -92,7 +168,7 @@ router.post('/', async (req, res) => {
 
     console.log(`[ONBOARD] Complete: "${storeName}" — ${extensions.length} exts, RG ${rgNum}, CF *${cfExt}`);
 
-    // Step 10: Return all IDs
+    // Step 12: Return all IDs
     res.json({
       ok: true,
       reload: reloadStatus,
@@ -106,6 +182,7 @@ router.post('/', async (req, res) => {
         announcementNoanswerId: result.announcementNoanswerId,
         announcementClosedId: result.announcementClosedId,
         inboundDid: did,
+        phoneNumber,
       },
     });
   } catch (err) {
