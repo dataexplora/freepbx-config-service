@@ -140,12 +140,8 @@ contact=sip:sip.yuboto-telephony.gr:5060
 qualify_frequency=60
 `);
 
-    fs.appendFileSync('/etc/asterisk/pjsip_custom.conf', `
-[identify-${sipId}]
-type=identify
-endpoint=${sipId}
-match=sip.yuboto-telephony.gr
-`);
+    // NOTE: Do NOT add per-DID identify section — single shared identify
+    // in pjsip_custom.conf handles all Yuboto endpoints
 
     console.log(`[ONBOARD] SIP registration added for ${did}`);
 
