@@ -13,6 +13,7 @@ const {
   createAnnouncementPair,
 } = require('../lib/onboard-db');
 const { fwconsoleReload } = require('../lib/reload');
+const { execSync } = require('child_process');
 
 const router = Router();
 
@@ -74,7 +75,13 @@ router.post('/', async (req, res) => {
       cfExt,
     });
 
-    // Step 9: Reload dialplan
+    // Step 9: Initialize DAYNIGHT state in Asterisk DB + reload
+    try {
+      execSync(`asterisk -rx "database put DAYNIGHT C${cfExt} DAY"`);
+    } catch (e) {
+      console.warn('[ONBOARD] Failed to init DAYNIGHT state:', e.message);
+    }
+
     let reloadStatus = 'success';
     try {
       await fwconsoleReload();
