@@ -146,8 +146,8 @@ qualify_frequency=60
     // Step 10: Asterisk DB entries (CLI — no REST API alternative for initial creation)
     try {
       execSync(`asterisk -rx "database put DIDMAP ${did} ${phoneNumber}"`);
-      execSync(`asterisk -rx "database put DAYNIGHT C${cfExt} DAY"`);
-      console.log(`[ONBOARD] AstDB: DIDMAP + DAYNIGHT C${cfExt} set`);
+      execSync(`asterisk -rx "database put DAYNIGHT C${cfExt} NIGHT"`);
+      console.log(`[ONBOARD] AstDB: DIDMAP + DAYNIGHT C${cfExt} set (NIGHT — blocked until first payment)`);
     } catch (e) {
       console.warn('[ONBOARD] Failed to set AstDB entries:', e.message);
     }
@@ -162,6 +162,20 @@ qualify_frequency=60
       console.warn('[ONBOARD] Failed to set TC state:', e.message);
     }
 
+    // Step 10c: Remove feature code (blocked state — no bypass until first payment)
+    const pool2 = require('../lib/onboard-db').getPool();
+    try {
+      const conn2 = await pool2.getConnection();
+      await conn2.execute(
+        'DELETE FROM featurecodes WHERE modulename = ? AND featurename = ?',
+        ['daynight', `toggle-mode-${cfExt}`]
+      );
+      conn2.release();
+      console.log(`[ONBOARD] Feature code removed (blocked until payment)`);
+    } catch (e) {
+      console.warn('[ONBOARD] Failed to remove feature code:', e.message);
+    }
+
     // Step 11: Reload
     let reloadStatus = 'success';
     try {
@@ -171,7 +185,7 @@ qualify_frequency=60
       reloadStatus = 'failed';
     }
 
-    console.log(`[ONBOARD] Complete: "${storeName}" — ${extensions.length} exts, RG ${rgNum}, CF *${cfExt}`);
+    console.log(`[ONBOARD] Complete: "${storeName}" — ${extensions.length} exts, RG ${rgNum}, CF *${cfExt} (blocked)`);
 
     // Step 12: Return all IDs
     res.json({
