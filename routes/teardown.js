@@ -112,13 +112,39 @@ router.delete('/', async (req, res) => {
       reloadStatus = 'failed';
     }
 
-    // 10. Delete audio files from disk
-    const fs = require('fs');
+    // 10. Remove SIP registration from pjsip custom files
+    if (did) {
+      const fs = require('fs');
+      const sipId = `yuboto-${did}`;
+      const confFiles = [
+        '/etc/asterisk/pjsip.registration_custom.conf',
+        '/etc/asterisk/pjsip.auth_custom.conf',
+        '/etc/asterisk/pjsip.aor_custom.conf',
+      ];
+      for (const file of confFiles) {
+        try {
+          if (!fs.existsSync(file)) continue;
+          const content = fs.readFileSync(file, 'utf8');
+          // Remove the section block: from [sipId...] to next empty line or [
+          const regex = new RegExp(`\\n?\\[${sipId}[^\\]]*\\][^\\[]*`, 'g');
+          const cleaned = content.replace(regex, '');
+          fs.writeFileSync(file, cleaned);
+        } catch (e) {
+          console.warn(`[TEARDOWN] Failed to clean ${file}:`, e.message);
+        }
+      }
+      // Remove DIDMAP entry
+      try { execSync(`asterisk -rx "database del DIDMAP ${did}"`); } catch {}
+      console.log(`[TEARDOWN] SIP registration + DIDMAP removed for DID ${did}`);
+    }
+
+    // 11. Delete audio files from disk
+    const fs2 = require('fs');
     const soundsDir = '/var/lib/asterisk/sounds/custom';
     for (const name of [`${storeSlug}-noanswer`, `${storeSlug}-closed`]) {
       for (const ext of ['.ulaw', '.wav']) {
         const path = `${soundsDir}/${name}${ext}`;
-        if (fs.existsSync(path)) fs.unlinkSync(path);
+        if (fs2.existsSync(path)) fs2.unlinkSync(path);
       }
     }
 
