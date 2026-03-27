@@ -4,15 +4,16 @@ const {
   getNextAvailableExtBlock,
   getNextAvailableRingGroup,
   getNextAvailableDaynightExt,
-  createExtensions,
   createRingGroup,
   createTimeGroupWithSchedule,
   createTimecondition,
   createDaynight,
   createInboundRoute,
   createAnnouncementPair,
+  getPool,
 } = require('../lib/onboard-db');
 const { fwconsoleReload } = require('../lib/reload');
+const { createExtensionsViaApi } = require('../lib/freepbx-api');
 const { execSync } = require('child_process');
 
 const router = Router();
@@ -74,13 +75,31 @@ router.post('/', async (req, res) => {
       extensionPasswords[ext] = password;
     }
 
-    // Steps 2-8: Create everything in transaction
+    // Step 2: Create extensions via FreePBX GraphQL API (creates MariaDB + Asterisk DB entries)
+    await createExtensionsViaApi(extBlock.start, extensionCount, storeName);
+    console.log(`[ONBOARD] Extensions ${extensions.join(',')} created via FreePBX API`);
+
+    // Step 2b: Set custom SIP passwords via SQL
+    const pool = getPool();
+    const pwConn = await pool.getConnection();
+    try {
+      for (const ext of extensions) {
+        await pwConn.execute(
+          "UPDATE sip SET data = ? WHERE id = ? AND keyword = 'secret'",
+          [extensionPasswords[ext], String(ext)]
+        );
+      }
+    } finally {
+      pwConn.release();
+    }
+    console.log(`[ONBOARD] Custom SIP passwords set for ${extensions.length} extensions`);
+
+    // Steps 3-8: Create remaining entities in transaction
     const result = await createAllEntities({
       storeName,
       storeSlug,
       did,
       extensions,
-      extensionPasswords,
       rgNum,
       cfExt,
     });
@@ -133,32 +152,6 @@ qualify_frequency=60
       console.warn('[ONBOARD] Failed to set AstDB entries:', e.message);
     }
 
-    // Step 10a: AMPUSER + DEVICE entries per extension (required for ring group dialing)
-    try {
-      for (const ext of extensions) {
-        const name = `${storeName} ${ext}`;
-        execSync(`asterisk -rx "database put AMPUSER ${ext}/device ${ext}"`);
-        execSync(`asterisk -rx "database put AMPUSER ${ext}/cidname ${name}"`);
-        execSync(`asterisk -rx "database put AMPUSER ${ext}/cidnum ${ext}"`);
-        execSync(`asterisk -rx "database put AMPUSER ${ext}/voicemail novm"`);
-        execSync(`asterisk -rx "database put AMPUSER ${ext}/ringtimer 0"`);
-        execSync(`asterisk -rx "database put AMPUSER ${ext}/noanswer ''"`);
-        execSync(`asterisk -rx "database put AMPUSER ${ext}/recording ''"`);
-        execSync(`asterisk -rx "database put AMPUSER ${ext}/outboundcid ''"`);
-        execSync(`asterisk -rx "database put AMPUSER ${ext}/concurrency_limit 3"`);
-        execSync(`asterisk -rx "database put AMPUSER ${ext}/answermode disabled"`);
-        execSync(`asterisk -rx "database put AMPUSER ${ext}/hint PJSIP/${ext}"`);
-        execSync(`asterisk -rx "database put DEVICE ${ext}/dial PJSIP/${ext}"`);
-        execSync(`asterisk -rx "database put DEVICE ${ext}/type fixed"`);
-        execSync(`asterisk -rx "database put DEVICE ${ext}/tech pjsip"`);
-        execSync(`asterisk -rx "database put DEVICE ${ext}/user ${ext}"`);
-        execSync(`asterisk -rx "database put DEVICE ${ext}/default_user ${ext}"`);
-      }
-      console.log(`[ONBOARD] AstDB: AMPUSER + DEVICE entries for ${extensions.length} extensions`);
-    } catch (e) {
-      console.warn('[ONBOARD] Failed to set AMPUSER/DEVICE entries:', e.message);
-    }
-
     // Step 10b: Time condition to true_sticky via FreePBX REST API
     // (business hours disabled by default — AI always on until customer enables hours)
     const { setTimeconditionState } = require('../lib/freepbx-api');
@@ -209,7 +202,7 @@ qualify_frequency=60
 async function createAllEntities(opts) {
   const {
     storeName, storeSlug, did,
-    extensions, extensionPasswords,
+    extensions,
     rgNum, cfExt,
   } = opts;
 
@@ -218,9 +211,6 @@ async function createAllEntities(opts) {
 
   try {
     await conn.beginTransaction();
-
-    // Step 2: Create PJSIP extensions
-    await createExtensions(conn, extensions, extensionPasswords, storeName);
 
     // Step 5: Create announcements (using default recordings)
     const { noanswerId, closedId } = await createAnnouncementPair(conn, storeSlug);

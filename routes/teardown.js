@@ -2,6 +2,7 @@ const { Router } = require('express');
 const { execSync } = require('child_process');
 const { getPool } = require('../lib/onboard-db');
 const { fwconsoleReload } = require('../lib/reload');
+const { deleteExtensionViaApi } = require('../lib/freepbx-api');
 
 const router = Router();
 
@@ -80,23 +81,15 @@ router.delete('/', async (req, res) => {
       console.log(`[TEARDOWN] Deleted ring group ${ringGroup}`);
     }
 
-    // 7. Delete extensions
+    // 7. Delete extensions via FreePBX API (cleans MariaDB + Asterisk DB)
     if (extensions && extensions.length > 0) {
-      const placeholders = extensions.map(() => '?').join(',');
-      const strExts = extensions.map(String);
-
-      await conn.execute(`DELETE FROM sip WHERE id IN (${placeholders})`, strExts);
-      await conn.execute(`DELETE FROM devices WHERE id IN (${placeholders})`, strExts);
-      await conn.execute(`DELETE FROM users WHERE extension IN (${placeholders})`, strExts);
-
-      // Remove Asterisk DB entries
       for (const ext of extensions) {
         try {
-          execSync(`asterisk -rx "database deltree AMPUSER ${ext}"`);
-          execSync(`asterisk -rx "database deltree DEVICE ${ext}"`);
-        } catch {}
+          await deleteExtensionViaApi(ext);
+        } catch (e) {
+          console.warn(`[TEARDOWN] API delete failed for ext ${ext}: ${e.message}`);
+        }
       }
-
       console.log(`[TEARDOWN] Deleted extensions: ${extensions.join(', ')}`);
     }
 
