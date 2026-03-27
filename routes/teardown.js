@@ -50,7 +50,9 @@ router.delete('/', async (req, res) => {
       // Remove from Asterisk DB
       try {
         execSync(`asterisk -rx "database del DAYNIGHT C${e}"`);
-      } catch {}
+      } catch (e2) {
+        console.error(`[TEARDOWN] Failed to delete DAYNIGHT C${e} from AstDB:`, e2.message);
+      }
 
       console.log(`[TEARDOWN] Deleted call flow control ext ${e}`);
     }
@@ -134,7 +136,11 @@ router.delete('/', async (req, res) => {
         }
       }
       // Remove DIDMAP entry
-      try { execSync(`asterisk -rx "database del DIDMAP ${did}"`); } catch {}
+      try {
+        execSync(`asterisk -rx "database del DIDMAP ${did}"`);
+      } catch (e) {
+        console.error(`[TEARDOWN] Failed to delete DIDMAP ${did} from AstDB:`, e.message);
+      }
       console.log(`[TEARDOWN] SIP registration + DIDMAP removed for DID ${did}`);
     }
 

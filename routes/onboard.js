@@ -54,6 +54,15 @@ router.post('/', async (req, res) => {
 
   console.log(`[ONBOARD] Starting onboard for "${storeName}" (DID: ${did}, ${extensionCount} extensions)`);
 
+  // Helper: rollback extensions on failure
+  const { deleteExtensionViaApi } = require('../lib/freepbx-api');
+  async function rollbackExtensions(extensions) {
+    for (const ext of extensions) {
+      try { await deleteExtensionViaApi(ext); } catch {}
+    }
+    console.error(`[ONBOARD] Rolled back ${extensions.length} extensions`);
+  }
+
   try {
     // Step 1: Find available numbers
     const extBlock = extensionStart
@@ -95,14 +104,21 @@ router.post('/', async (req, res) => {
     console.log(`[ONBOARD] Custom SIP passwords set for ${extensions.length} extensions`);
 
     // Steps 3-8: Create remaining entities in transaction
-    const result = await createAllEntities({
-      storeName,
-      storeSlug,
-      did,
-      extensions,
-      rgNum,
-      cfExt,
-    });
+    let result;
+    try {
+      result = await createAllEntities({
+        storeName,
+        storeSlug,
+        did,
+        extensions,
+        rgNum,
+        cfExt,
+      });
+    } catch (txErr) {
+      // Transaction failed — rollback extensions
+      await rollbackExtensions(extensions);
+      throw txErr;
+    }
 
     // Step 9: SIP registration for Yuboto DID
     const fs = require('fs');
@@ -137,44 +153,27 @@ contact=sip:sip.yuboto-telephony.gr:5060
 qualify_frequency=60
 `);
 
-    // NOTE: No custom endpoint or identify per DID
-    // The shared yuboto-in endpoint (FreePBX generated) handles all inbound calls
-    // Only registration + auth + aor are needed per DID
-
     console.log(`[ONBOARD] SIP registration added for ${did}`);
 
     // Step 10: Asterisk DB entries (CLI — no REST API alternative for initial creation)
-    try {
-      execSync(`asterisk -rx "database put DIDMAP ${did} ${phoneNumber}"`);
-      execSync(`asterisk -rx "database put DAYNIGHT C${cfExt} NIGHT"`);
-      console.log(`[ONBOARD] AstDB: DIDMAP + DAYNIGHT C${cfExt} set (NIGHT — blocked until first payment)`);
-    } catch (e) {
-      console.warn('[ONBOARD] Failed to set AstDB entries:', e.message);
-    }
+    execSync(`asterisk -rx "database put DIDMAP ${did} ${phoneNumber}"`);
+    execSync(`asterisk -rx "database put DAYNIGHT C${cfExt} NIGHT"`);
+    console.log(`[ONBOARD] AstDB: DIDMAP + DAYNIGHT C${cfExt} set (NIGHT — blocked until first payment)`);
 
     // Step 10b: Time condition to true_sticky via FreePBX REST API
-    // (business hours disabled by default — AI always on until customer enables hours)
     const { setTimeconditionState } = require('../lib/freepbx-api');
-    try {
-      await setTimeconditionState(result.timeconditionId, 'true_sticky');
-      console.log(`[ONBOARD] TC ${result.timeconditionId} set to true_sticky`);
-    } catch (e) {
-      console.warn('[ONBOARD] Failed to set TC state:', e.message);
-    }
+    await setTimeconditionState(result.timeconditionId, 'true_sticky');
+    console.log(`[ONBOARD] TC ${result.timeconditionId} set to true_sticky`);
 
     // Step 10c: Remove feature code (blocked state — no bypass until first payment)
     const pool2 = require('../lib/onboard-db').getPool();
-    try {
-      const conn2 = await pool2.getConnection();
-      await conn2.execute(
-        'DELETE FROM featurecodes WHERE modulename = ? AND featurename = ?',
-        ['daynight', `toggle-mode-${cfExt}`]
-      );
-      conn2.release();
-      console.log(`[ONBOARD] Feature code removed (blocked until payment)`);
-    } catch (e) {
-      console.warn('[ONBOARD] Failed to remove feature code:', e.message);
-    }
+    const conn2 = await pool2.getConnection();
+    await conn2.execute(
+      'DELETE FROM featurecodes WHERE modulename = ? AND featurename = ?',
+      ['daynight', `toggle-mode-${cfExt}`]
+    );
+    conn2.release();
+    console.log(`[ONBOARD] Feature code removed (blocked until payment)`);
 
     // Step 11: Reload
     let reloadStatus = 'success';
