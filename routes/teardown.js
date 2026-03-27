@@ -88,6 +88,15 @@ router.delete('/', async (req, res) => {
       await conn.execute(`DELETE FROM sip WHERE id IN (${placeholders})`, strExts);
       await conn.execute(`DELETE FROM devices WHERE id IN (${placeholders})`, strExts);
       await conn.execute(`DELETE FROM users WHERE extension IN (${placeholders})`, strExts);
+
+      // Remove Asterisk DB entries
+      for (const ext of extensions) {
+        try {
+          execSync(`asterisk -rx "database deltree AMPUSER ${ext}"`);
+          execSync(`asterisk -rx "database deltree DEVICE ${ext}"`);
+        } catch {}
+      }
+
       console.log(`[TEARDOWN] Deleted extensions: ${extensions.join(', ')}`);
     }
 
