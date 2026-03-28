@@ -153,7 +153,26 @@ contact=sip:sip.yuboto-telephony.gr:5060
 qualify_frequency=60
 `);
 
-    console.log(`[ONBOARD] SIP registration added for ${did}`);
+    // Step 9b: Outbound endpoint for this DID
+    fs.appendFileSync('/etc/asterisk/pjsip.endpoint_custom.conf', `
+
+[${sipId}]
+type=endpoint
+transport=0.0.0.0-udp
+context=from-internal
+disallow=all
+allow=ulaw,alaw,gsm,g726,g722
+aors=${sipId}
+outbound_auth=${sipId}-auth
+from_domain=sip.yuboto-telephony.gr
+from_user=${did}
+direct_media=no
+rtp_symmetric=yes
+dtmf_mode=auto
+send_connected_line=no
+`);
+
+    console.log(`[ONBOARD] SIP registration + outbound endpoint added for ${did}`);
 
     // Step 10: Asterisk DB entries (CLI — no REST API alternative for initial creation)
     execSync(`asterisk -rx "database put DIDMAP ${did} ${phoneNumber}"`);

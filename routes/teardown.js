@@ -128,6 +128,7 @@ router.delete('/', async (req, res) => {
         '/etc/asterisk/pjsip.registration_custom.conf',
         '/etc/asterisk/pjsip.auth_custom.conf',
         '/etc/asterisk/pjsip.aor_custom.conf',
+        '/etc/asterisk/pjsip.endpoint_custom.conf',
       ];
       for (const file of confFiles) {
         try {
