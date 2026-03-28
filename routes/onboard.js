@@ -172,7 +172,9 @@ dtmf_mode=auto
 send_connected_line=no
 `);
 
-    console.log(`[ONBOARD] SIP registration + outbound endpoint added for ${did}`);
+    // Reload PJSIP so new registration + endpoint are active immediately
+    execSync('asterisk -rx "module reload res_pjsip"');
+    console.log(`[ONBOARD] SIP registration + outbound endpoint added for ${did} (PJSIP reloaded)`);
 
     // Step 10: Asterisk DB entries (CLI — no REST API alternative for initial creation)
     execSync(`asterisk -rx "database put DIDMAP ${did} ${phoneNumber}"`);

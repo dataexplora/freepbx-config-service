@@ -149,6 +149,14 @@ router.delete('/', async (req, res) => {
         console.error(`[TEARDOWN] Failed to delete DIDMAP ${did} from AstDB:`, e.message);
       }
       console.log(`[TEARDOWN] SIP registration + DIDMAP removed for DID ${did}`);
+
+      // Reload PJSIP module to clear stale registrations from memory
+      try {
+        execSync('asterisk -rx "module reload res_pjsip"');
+        console.log(`[TEARDOWN] PJSIP module reloaded`);
+      } catch (e) {
+        console.error(`[TEARDOWN] PJSIP reload failed:`, e.message);
+      }
     }
 
     // 11. Delete audio files from disk
