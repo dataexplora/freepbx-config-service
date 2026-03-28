@@ -158,7 +158,11 @@ qualify_frequency=60
     // Step 10: Asterisk DB entries (CLI — no REST API alternative for initial creation)
     execSync(`asterisk -rx "database put DIDMAP ${did} ${phoneNumber}"`);
     execSync(`asterisk -rx "database put DAYNIGHT C${cfExt} NIGHT"`);
-    console.log(`[ONBOARD] AstDB: DIDMAP + DAYNIGHT C${cfExt} set (NIGHT — blocked until first payment)`);
+    // Outbound trunk mapping: each extension → its store's Yuboto trunk
+    for (const ext of extensions) {
+      execSync(`asterisk -rx "database put OUTTRUNK ${ext} ${sipId}"`);
+    }
+    console.log(`[ONBOARD] AstDB: DIDMAP + DAYNIGHT C${cfExt} + OUTTRUNK for ${extensions.length} exts`);
 
     // Step 10b: Time condition to true_sticky via FreePBX REST API
     const { setTimeconditionState } = require('../lib/freepbx-api');

@@ -91,8 +91,14 @@ router.delete('/', async (req, res) => {
         } catch (e) {
           console.warn(`[TEARDOWN] API delete failed for ext ${ext}: ${e.message}`);
         }
+        // Remove outbound trunk mapping
+        try {
+          execSync(`asterisk -rx "database del OUTTRUNK ${ext}"`);
+        } catch (e) {
+          console.error(`[TEARDOWN] Failed to delete OUTTRUNK ${ext}:`, e.message);
+        }
       }
-      console.log(`[TEARDOWN] Deleted extensions: ${extensions.join(', ')}`);
+      console.log(`[TEARDOWN] Deleted extensions + OUTTRUNK: ${extensions.join(', ')}`);
     }
 
     // 8. Delete custom recordings if they exist
