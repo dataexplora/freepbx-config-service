@@ -76,11 +76,12 @@ router.post('/', async (req, res) => {
       conn2.release();
     }
 
-    // 5. Set OUTTRUNK per extension
+    // 5. Set OUTTRUNK + STOREGROUP per extension
     for (const ext of extensions) {
       execSync(`asterisk -rx "database put OUTTRUNK ${ext} ${sipId}"`);
+      execSync(`asterisk -rx "database put STOREGROUP ${ext} ${storeSlug}"`);
     }
-    console.log(`[EXT] OUTTRUNK set for ${extensions.length} extensions → ${sipId}`);
+    console.log(`[EXT] OUTTRUNK + STOREGROUP set for ${extensions.length} extensions`);
 
     // 6. Reload
     await fwconsoleReload();

@@ -91,11 +91,12 @@ router.delete('/', async (req, res) => {
         } catch (e) {
           console.warn(`[TEARDOWN] API delete failed for ext ${ext}: ${e.message}`);
         }
-        // Remove outbound trunk mapping
+        // Remove outbound trunk mapping + store group
         try {
           execSync(`asterisk -rx "database del OUTTRUNK ${ext}"`);
+          execSync(`asterisk -rx "database del STOREGROUP ${ext}"`);
         } catch (e) {
-          console.error(`[TEARDOWN] Failed to delete OUTTRUNK ${ext}:`, e.message);
+          console.error(`[TEARDOWN] Failed to delete OUTTRUNK/STOREGROUP ${ext}:`, e.message);
         }
       }
       console.log(`[TEARDOWN] Deleted extensions + OUTTRUNK: ${extensions.join(', ')}`);
