@@ -179,12 +179,13 @@ send_connected_line=no
     // Step 10: Asterisk DB entries (CLI — no REST API alternative for initial creation)
     execSync(`asterisk -rx "database put DIDMAP ${did} ${phoneNumber}"`);
     execSync(`asterisk -rx "database put DAYNIGHT C${cfExt} NIGHT"`);
-    // Outbound trunk mapping + store group: each extension → its store
+    // Outbound trunk mapping + store group: each extension + ring group → its store
     for (const ext of extensions) {
       execSync(`asterisk -rx "database put OUTTRUNK ${ext} ${sipId}"`);
       execSync(`asterisk -rx "database put STOREGROUP ${ext} ${storeSlug}"`);
     }
-    console.log(`[ONBOARD] AstDB: DIDMAP + DAYNIGHT C${cfExt} + OUTTRUNK + STOREGROUP for ${extensions.length} exts`);
+    execSync(`asterisk -rx "database put STOREGROUP ${rgNum} ${storeSlug}"`);
+    console.log(`[ONBOARD] AstDB: DIDMAP + DAYNIGHT C${cfExt} + OUTTRUNK + STOREGROUP for ${extensions.length} exts + RG ${rgNum}`);
 
     // Step 10b: Time condition to true_sticky via FreePBX REST API
     const { setTimeconditionState } = require('../lib/freepbx-api');
