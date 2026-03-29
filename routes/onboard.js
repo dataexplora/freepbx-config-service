@@ -77,44 +77,49 @@ router.post('/', async (req, res) => {
     // Generate unique 4-digit passwords
     const extensions = [];
     const extensionPasswords = {};
-    const pool = getPool();
-    const pwConn = await pool.getConnection();
-    let existingPasswords = new Set();
-    try {
-      const [rows] = await pwConn.execute(
-        "SELECT data FROM sip WHERE keyword = 'secret' AND data REGEXP '^[0-9]{4}$'"
-      );
-      existingPasswords = new Set(rows.map(r => r.data));
-    } finally {
-      pwConn.release();
-    }
+    {
+      const pool = getPool();
+      const conn = await pool.getConnection();
+      try {
+        // Read existing 4-digit passwords to avoid collisions
+        const [rows] = await conn.execute(
+          "SELECT data FROM sip WHERE keyword = 'secret' AND data REGEXP '^[0-9]{4}$'"
+        );
+        const existingPasswords = new Set(rows.map(r => r.data));
 
-    for (let i = 0; i < extensionCount; i++) {
-      const ext = extBlock.start + i;
-      let password;
-      do {
-        password = String(crypto.randomInt(1000, 9999));
-      } while (existingPasswords.has(password));
-      existingPasswords.add(password);
-      extensions.push(ext);
-      extensionPasswords[ext] = password;
+        for (let i = 0; i < extensionCount; i++) {
+          const ext = extBlock.start + i;
+          let password;
+          do {
+            password = String(crypto.randomInt(1000, 9999));
+          } while (existingPasswords.has(password));
+          existingPasswords.add(password);
+          extensions.push(ext);
+          extensionPasswords[ext] = password;
+        }
+      } finally {
+        conn.release();
+      }
     }
 
     // Step 2: Create extensions via FreePBX GraphQL API (creates MariaDB + Asterisk DB entries)
     await createExtensionsViaApi(extBlock.start, extensionCount, storeName);
     console.log(`[ONBOARD] Extensions ${extensions.join(',')} created via FreePBX API`);
 
-    // Step 2b: Set custom SIP passwords via SQL (reuse pool from step 1)
-    const pwConn = await pool.getConnection();
-    try {
-      for (const ext of extensions) {
-        await pwConn.execute(
-          "UPDATE sip SET data = ? WHERE id = ? AND keyword = 'secret'",
-          [extensionPasswords[ext], String(ext)]
-        );
+    // Step 2b: Set custom SIP passwords via SQL
+    {
+      const pool = getPool();
+      const conn = await pool.getConnection();
+      try {
+        for (const ext of extensions) {
+          await conn.execute(
+            "UPDATE sip SET data = ? WHERE id = ? AND keyword = 'secret'",
+            [extensionPasswords[ext], String(ext)]
+          );
+        }
+      } finally {
+        conn.release();
       }
-    } finally {
-      pwConn.release();
     }
     console.log(`[ONBOARD] Custom SIP passwords set for ${extensions.length} extensions`);
 
