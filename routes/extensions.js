@@ -32,9 +32,28 @@ router.post('/', async (req, res) => {
     const extBlock = await getNextAvailableExtBlock(count);
     const extensions = [];
     const passwords = {};
+
+    // Get existing 4-digit passwords to ensure uniqueness
+    const pool2 = getPool();
+    const pwConn = await pool2.getConnection();
+    let existingPasswords = new Set();
+    try {
+      const [rows] = await pwConn.execute(
+        "SELECT data FROM sip WHERE keyword = 'secret' AND data REGEXP '^[0-9]{4}$'"
+      );
+      existingPasswords = new Set(rows.map(r => r.data));
+    } finally {
+      pwConn.release();
+    }
+
     for (let i = 0; i < count; i++) {
       const ext = extBlock.start + i;
-      passwords[ext] = `${storeSlug}${crypto.randomInt(1000, 9999)}`;
+      let password;
+      do {
+        password = String(crypto.randomInt(1000, 9999));
+      } while (existingPasswords.has(password));
+      existingPasswords.add(password);
+      passwords[ext] = password;
       extensions.push(ext);
     }
 

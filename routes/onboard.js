@@ -74,12 +74,28 @@ router.post('/', async (req, res) => {
 
     console.log(`[ONBOARD] Allocated: extensions ${extBlock.start}-${extBlock.end}, RG ${rgNum}, CF ext ${cfExt}`);
 
-    // Generate passwords
+    // Generate unique 4-digit passwords
     const extensions = [];
     const extensionPasswords = {};
+    const pool = getPool();
+    const pwConn = await pool.getConnection();
+    let existingPasswords = new Set();
+    try {
+      const [rows] = await pwConn.execute(
+        "SELECT data FROM sip WHERE keyword = 'secret' AND data REGEXP '^[0-9]{4}$'"
+      );
+      existingPasswords = new Set(rows.map(r => r.data));
+    } finally {
+      pwConn.release();
+    }
+
     for (let i = 0; i < extensionCount; i++) {
       const ext = extBlock.start + i;
-      const password = `${storeSlug}${crypto.randomInt(1000, 9999)}`;
+      let password;
+      do {
+        password = String(crypto.randomInt(1000, 9999));
+      } while (existingPasswords.has(password));
+      existingPasswords.add(password);
       extensions.push(ext);
       extensionPasswords[ext] = password;
     }
