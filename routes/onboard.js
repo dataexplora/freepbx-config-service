@@ -104,8 +104,7 @@ router.post('/', async (req, res) => {
     await createExtensionsViaApi(extBlock.start, extensionCount, storeName);
     console.log(`[ONBOARD] Extensions ${extensions.join(',')} created via FreePBX API`);
 
-    // Step 2b: Set custom SIP passwords via SQL
-    const pool = getPool();
+    // Step 2b: Set custom SIP passwords via SQL (reuse pool from step 1)
     const pwConn = await pool.getConnection();
     try {
       for (const ext of extensions) {
